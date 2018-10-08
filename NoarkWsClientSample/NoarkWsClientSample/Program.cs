@@ -438,34 +438,34 @@ namespace NoarkWsClientSample
         {
             const string GROUP_ID = "APPR-03";
 
-            //Get the business-specific metadata registry for a group with gruppeIdent "APPR-03"
-            VirksomhetsspesifikkeMetadataInfo metadataInfo = client.BsmRegistry(GROUP_ID);
+            //Get the business-specific metadata registry for a group with group Id "APPR-03"
+            BusinessSpecificMetadataInfo metadataInfo = client.BsmRegistry(GROUP_ID);
 
             //Print the registry for this group
             //Also find one string-type, long-type and double-type field
             string stringFieldId = null, doubleFieldId = null, longFieldId = null;
 
-            foreach (VirksomhetsspesifikkeGruppeInfo groupInfo in metadataInfo.Gruppen)
+            foreach (MetadataGroupInfo groupInfo in metadataInfo.Groups)
             {
                 Console.WriteLine(
-                    $"GruppeInfo: GruppeIdent={groupInfo.GruppeIdent}, GruppeNavn={groupInfo.GruppeNavn}");
-                foreach (VirksomhetsspesifikkeFeltInfo fieldInfo in groupInfo.Felter)
+                    $"GroupInfo: GroupId={groupInfo.GroupId}, GroupName={groupInfo.GroupName}");
+                foreach (MetadataFieldInfo fieldInfo in groupInfo.Fields)
                 {
                     Console.WriteLine(
-                        $" ---- FeltInfo: FeltIdent={fieldInfo.FeltIdent}, FeltType={fieldInfo.FeltType}, FeltNavn={fieldInfo.FeltNavn}");
+                        $" ---- FieldInfo: FieldId={fieldInfo.FieldId}, FieldType={fieldInfo.FieldType}, FieldName={fieldInfo.FieldName}");
 
-                    if (fieldInfo.FeltType == FieldType.String && stringFieldId == null)
+                    if (fieldInfo.FieldType == FieldType.String && stringFieldId == null)
                     {
-                        stringFieldId = fieldInfo.FeltIdent;
+                        stringFieldId = fieldInfo.FieldId;
                     }
 
-                    if (fieldInfo.FeltType == FieldType.Double && doubleFieldId == null)
+                    if (fieldInfo.FieldType == FieldType.Double && doubleFieldId == null)
                     {
-                        doubleFieldId = fieldInfo.FeltIdent;
+                        doubleFieldId = fieldInfo.FieldId;
                     }
-                    if (fieldInfo.FeltType == FieldType.Long && longFieldId == null)
+                    if (fieldInfo.FieldType == FieldType.Long && longFieldId == null)
                     {
-                        longFieldId = fieldInfo.FeltIdent;
+                        longFieldId = fieldInfo.FieldId;
                     }
                 }
             }
@@ -518,7 +518,7 @@ namespace NoarkWsClientSample
                 {
                     BsmFieldValues values = fieldsMap[fieldId];
                     Console.WriteLine(
-                        $"Gruppe={groupId}, Felt={fieldId}, ValueType={values.Type}, Values=[{string.Join(",", values.Values)}]");
+                        $"GroupId={groupId}, FieldId={fieldId}, ValueType={values.Type}, Values=[{string.Join(",", values.Values)}]");
                 }
             }
             Console.WriteLine();
@@ -568,7 +568,7 @@ namespace NoarkWsClientSample
                 {
                     BsmFieldValues values = fieldsMap[fieldId];
                     Console.WriteLine(
-                        $"Gruppe={groupId}, Felt={fieldId}, ValueType={values.Type}, Values=[{string.Join(",", values.Values)}]");
+                        $"GroupId={groupId}, FieldId={fieldId}, ValueType={values.Type}, Values=[{string.Join(",", values.Values)}]");
                 }
             }
 
