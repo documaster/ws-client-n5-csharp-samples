@@ -5,7 +5,7 @@ using CommandLine;
 using Documaster.WebApi.Client.Noark5;
 using Documaster.WebApi.Client.Noark5.Client;
 using Documaster.WebApi.Client.Noark5.NoarkEntities;
-using Documaster.WebAPI.Client.IDP;
+using Documaster.WebApi.Client.IDP;
 
 namespace NoarkWsClientSample
 {
@@ -22,6 +22,7 @@ namespace NoarkWsClientSample
 
             JournalingSample();
             ArchiveSample();
+            BusinessSpecificMetadataSample();
         }
 
         private static Options ParserCommandLineArguments(string[] args)
@@ -79,6 +80,7 @@ namespace NoarkWsClientSample
             Console.WriteLine($"Journaling example {Environment.NewLine}");
 
             //Create a new Arkiv with an Arkivskaper
+            //When new objects are initialized, a temporary Id is assigned to them.
             var newArkivskaper = new Arkivskaper("B7-23-W5", "John Smith");
             var newArkiv = new Arkiv("Arkiv");
 
@@ -88,6 +90,10 @@ namespace NoarkWsClientSample
                 .Link(newArkiv.LinkArkivskaper(newArkivskaper))
                 .Commit();
 
+
+            //When the transaction is committed, the transaction response contains a map with saved objects.
+            //One can access the saved Arkiv by providing its temporary Id as a key to the map.
+            //Notice that arkiv.Id is the permanent Id of the Arkiv.
             var arkiv = transactionResponse.Saved[newArkiv.Id] as Arkiv;
             Console.WriteLine(
                 $"Created Arkiv: Id={arkiv.Id}, Tittel={arkiv.Tittel}, OpprettetDato={arkiv.OpprettetDato}");
@@ -146,16 +152,40 @@ namespace NoarkWsClientSample
             arkivdel = queryResults.Results.First();
             Console.WriteLine($"Tittel of Arkivdel is masked: {arkivdel.Tittel}");
 
+            //For convenience, objects in query and transaction responses contain the id's of many-to-one reference fields
+            Console.WriteLine($"Arkivdel.RefArkiv: {arkivdel.RefArkiv}");
+            Console.WriteLine($"Arkivdel.RefPrimaerKlassifikasjonssystem: {arkivdel.RefPrimaerKlassifikasjonssystem}");
+
+            //Create two other Klassifikasjonssystem objects and link them to the Arkivdel as secondary Klassifikasjonssystem
+            var sekundaerKlassifikasjonssystemSkole = new Klassifikasjonssystem("Skole");
+            var klasseInSekundaerKlassifikasjonssystemSkole = new Klasse("07", "Report");
+            var sekundaerKlassifikasjonssystem2 = new Klassifikasjonssystem("EOP");
+
+            transactionResponse = client.Transaction()
+                .Save(sekundaerKlassifikasjonssystemSkole)
+                .Save(klasseInSekundaerKlassifikasjonssystemSkole)
+                .Link(sekundaerKlassifikasjonssystemSkole.LinkKlasse(klasseInSekundaerKlassifikasjonssystemSkole))
+                .Save(sekundaerKlassifikasjonssystem2)
+                .Link(arkivdel.LinkSekundaerKlassifikasjonssystem(sekundaerKlassifikasjonssystemSkole,
+                    sekundaerKlassifikasjonssystem2))
+                .Commit();
+
+            //We need the id of the saved Klasse for the next transactions
+            var sekundaerKlasseId =
+                transactionResponse.Saved[klasseInSekundaerKlassifikasjonssystemSkole.Id].Id;
+
             //Create a new Saksmappe in the Arkivdel
-            //The code list value admUnit in the AdministrativEnhet code list must exists in the system
-            //The new Saksmappe needs to have a Klasse in the Klassifikasjonssystem of the Arkivdel
+            //The code list value "admUnit" in the AdministrativEnhet code list must exists in the system!
+            //The new Saksmappe needs to have a Klasse in the primary Klassifikasjonssystem of the Arkivdel
+            //Also link the Saksmappe to a secondary Klasse
             var newSaksmappe = new Saksmappe("Tilbud (Smith, John)", new AdministrativEnhet("admUnit"));
             var newSakspart = new Sakspart("Alice", "internal");
 
             var savedObjects = client.Transaction()
                 .Save(newSaksmappe)
                 .Link(newSaksmappe.LinkArkivdel(arkivdel))
-                .Link(newSaksmappe.LinkKlasse(klasseId))
+                .Link(newSaksmappe.LinkPrimaerKlasse(klasseId))
+                .Link(newSaksmappe.LinkSekundaerKlasse(sekundaerKlasseId))
                 .Save(newSakspart)
                 .Link(newSaksmappe.LinkSakspart(newSakspart))
                 .Commit()
@@ -171,8 +201,8 @@ namespace NoarkWsClientSample
             client.Transaction()
                 .Save(anotherKlasse)
                 .Link(anotherKlasse.LinkKlassifikasjonssystem(klassifikasjonssystemId))
-                .Unlink(saksmappe.UnlinkKlasse(klasseId))
-                .Link(saksmappe.LinkKlasse(anotherKlasse))
+                .Unlink(saksmappe.UnlinkPrimaerKlasse(klasseId))
+                .Link(saksmappe.LinkPrimaerKlasse(anotherKlasse))
                 .Commit();
             Console.WriteLine(
                 $"Unlinked Saksmappe wiht Id {saksmappe.Id} from Klasse '{newKlasse.Tittel}' and linked it to Klasse '{anotherKlasse.Tittel}'");
@@ -188,6 +218,7 @@ namespace NoarkWsClientSample
             //Create a new Journalpost in the Saksmappe
             //Create an EksternId object and link it to the Journalpost
             //Create a new Korrespondansepart and link it to the Journalpost
+            //Create a Noekkelord (keyword) object and link it to the Journalpost
             var newJournalpost = new Journalpost("Tilbud (Smith, John, Godkjent)", Journalposttype.UTGAAENDE_DOKUMENT)
             {
                 Journalaar = 2007,
@@ -196,6 +227,7 @@ namespace NoarkWsClientSample
 
             var newEksternId = new EksternId("External System", Guid.NewGuid().ToString());
             var newKorrespondansepart = new Korrespondansepart(Korrespondanseparttype.INTERN_MOTTAKER, "John Smith");
+            var newNoekkelord = new Noekkelord("keyword");
 
             savedObjects = client.Transaction()
                 .Save(newJournalpost)
@@ -204,6 +236,8 @@ namespace NoarkWsClientSample
                 .Link(newJournalpost.LinkEksternId(newEksternId))
                 .Save(newKorrespondansepart)
                 .Link(newJournalpost.LinkKorrespondansepart(newKorrespondansepart))
+                .Save(newNoekkelord)
+                .Link(newNoekkelord.LinkRegistrering(newJournalpost))
                 .Commit()
                 .Saved;
 
@@ -398,6 +432,147 @@ namespace NoarkWsClientSample
             var dokumentversjon = savedObjects[newDokumentversjon.Id] as Dokumentversjon;
             Console.WriteLine(
                 $"Created Dokumentversjon: Id={dokumentversjon.Id}, Versjonsnummer: {dokumentversjon.Versjonsnummer}, Filstoerrelse: {dokumentversjon.Filstoerrelse}");
+        }
+
+        private static void BusinessSpecificMetadataSample()
+        {
+            const string GROUP_ID = "APPR-03";
+
+            //Get the business-specific metadata registry for a group with group Id "APPR-03"
+            BusinessSpecificMetadataInfo metadataInfo = client.BsmRegistry(GROUP_ID);
+
+            //Print the registry for this group
+            //Also find one string-type, long-type and double-type field
+            string stringFieldId = null, doubleFieldId = null, longFieldId = null;
+
+            foreach (MetadataGroupInfo groupInfo in metadataInfo.Groups)
+            {
+                Console.WriteLine(
+                    $"GroupInfo: GroupId={groupInfo.GroupId}, GroupName={groupInfo.GroupName}");
+                foreach (MetadataFieldInfo fieldInfo in groupInfo.Fields)
+                {
+                    Console.WriteLine(
+                        $" ---- FieldInfo: FieldId={fieldInfo.FieldId}, FieldType={fieldInfo.FieldType}, FieldName={fieldInfo.FieldName}");
+
+                    if (fieldInfo.FieldType == FieldType.String && stringFieldId == null)
+                    {
+                        stringFieldId = fieldInfo.FieldId;
+                    }
+
+                    if (fieldInfo.FieldType == FieldType.Double && doubleFieldId == null)
+                    {
+                        doubleFieldId = fieldInfo.FieldId;
+                    }
+                    if (fieldInfo.FieldType == FieldType.Long && longFieldId == null)
+                    {
+                        longFieldId = fieldInfo.FieldId;
+                    }
+                }
+            }
+            Console.WriteLine();
+
+            //Create an Arkiv, Arkivdel and one Mappe
+            //Set VirksomhetsspesifikkeMetadata for the Mappe
+            var arkivskaper = new Arkivskaper("B67", "Jack Smith");
+            var arkiv = new Arkiv("Arkiv - VirksomhetsspesifikkeMetadata Example");
+            var arkivdel = new Arkivdel("Arkivdel - VirksomhetsspesifikkeMetadata Example");
+
+            var mappe = new Mappe("Mappe with VirksomhetsspesifikkeMetadata");
+
+            //Add three meta-data fields to the Mappe:
+            if (stringFieldId != null)
+            {
+                mappe.VirksomhetsspesifikkeMetadata.AddBsmFieldValues(GROUP_ID, stringFieldId, "value 1",
+                    "string value 2");
+            }
+
+            if (doubleFieldId != null)
+            {
+                mappe.VirksomhetsspesifikkeMetadata.AddBsmFieldValues(GROUP_ID, doubleFieldId, 5.63, 6.7);
+            }
+
+            if (longFieldId != null)
+            {
+                mappe.VirksomhetsspesifikkeMetadata.AddBsmFieldValues(GROUP_ID, longFieldId, 167907000L);
+            }
+
+            var transactionResponse = client.Transaction()
+                .Save(arkiv)
+                .Save(arkivskaper)
+                .Link(arkiv.LinkArkivskaper(arkivskaper))
+                .Save(arkivdel)
+                .Link(arkivdel.LinkArkiv(arkiv))
+                .Save(mappe)
+                .Link(mappe.LinkArkivdel(arkivdel))
+                .Commit();
+
+            //Get the saved Mappe
+            mappe = transactionResponse.Saved[mappe.Id] as Mappe;
+
+            //Print the VirksomhetsspesifikkeMetadata of the Mappe
+            BsmGroupsMap groupsMap = mappe.VirksomhetsspesifikkeMetadata;
+            foreach (var groupId in groupsMap.Keys)
+            {
+                BsmFieldsMap fieldsMap = mappe.VirksomhetsspesifikkeMetadata[groupId];
+                foreach (var fieldId in fieldsMap.Keys)
+                {
+                    BsmFieldValues values = fieldsMap[fieldId];
+                    Console.WriteLine(
+                        $"GroupId={groupId}, FieldId={fieldId}, ValueType={values.Type}, Values=[{string.Join(",", values.Values)}]");
+                }
+            }
+            Console.WriteLine();
+
+            //Update the VirksomhetsspesifikkeMetadata of the Mappe
+
+            //Add one more string value to the string field
+            if (stringFieldId != null)
+            {
+                //To add a new field value, simply add it to the set of values of the particular field
+                //Use the "AddBsmFieldValues" method, if you want to override the existing set of values with a new one
+                mappe.VirksomhetsspesifikkeMetadata[GROUP_ID][stringFieldId].Values.Add("string value 3");
+            }
+
+            //Remove one of the values of the double field
+            if (doubleFieldId != null)
+            {
+                mappe.VirksomhetsspesifikkeMetadata.DeleteBsmFieldValue(GROUP_ID, doubleFieldId, 5.63);
+            }
+
+            //Completely remove the long field
+            if (longFieldId != null)
+            {
+                mappe.VirksomhetsspesifikkeMetadata.DeleteBsmField(GROUP_ID, longFieldId);
+            }
+
+            //It is also possible to remove a whole group:
+            //mappe.VirksomhetsspesifikkeMetadata.DeleteBsmGroup(groupIdentfier);
+
+            transactionResponse = client.Transaction()
+                .Save(mappe)
+                .Commit();
+
+            //Make query to fetch the Mappe
+
+            QueryResponse<Mappe> queryResponse = client.Query<Mappe>("id=@id", 1)
+                .AddQueryParam("@id", mappe.Id)
+                .Execute();
+            mappe = queryResponse.Results.First();
+
+            //Print the new VirksomhetsspesifikkeMetadata
+            groupsMap = mappe.VirksomhetsspesifikkeMetadata;
+            foreach (var groupId in groupsMap.Keys)
+            {
+                BsmFieldsMap fieldsMap = mappe.VirksomhetsspesifikkeMetadata[groupId];
+                foreach (var fieldId in fieldsMap.Keys)
+                {
+                    BsmFieldValues values = fieldsMap[fieldId];
+                    Console.WriteLine(
+                        $"GroupId={groupId}, FieldId={fieldId}, ValueType={values.Type}, Values=[{string.Join(",", values.Values)}]");
+                }
+            }
+
+            Console.WriteLine();
         }
     }
 
