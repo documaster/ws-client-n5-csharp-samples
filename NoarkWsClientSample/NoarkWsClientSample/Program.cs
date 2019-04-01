@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using CommandLine;
@@ -6,13 +7,14 @@ using Documaster.WebApi.Client.Noark5;
 using Documaster.WebApi.Client.Noark5.Client;
 using Documaster.WebApi.Client.Noark5.NoarkEntities;
 using Documaster.WebApi.Client.IDP;
+using Documaster.WebApi.Client.IDP.Oauth2;
 
 namespace NoarkWsClientSample
 {
     class Program
     {
         private static NoarkClient client;
-        private static IdpClient idpClient;
+        private static Oauth2HttpClient idpClient;
         static string testDoc;
 
         public static void Main(string[] args)
@@ -55,24 +57,34 @@ namespace NoarkWsClientSample
 
             //Initialize an IDP client and request an authorization token
             InitIdpClient(opts);
-            var accessToken = idpClient.GetTokenWithPasswordGrantType(
-                opts.ClientId, opts.ClientSecret, opts.Username, opts.Password).AccessToken;
+            PasswordGrantTypeParams passwordGrantTypeParams = new PasswordGrantTypeParams(
+                opts.ClientId, opts.ClientSecret, opts.Username, opts.Password, OpenIDConnectScope.OPENID);
+            var accessToken = idpClient.GetTokenWithPasswordGrantType(passwordGrantTypeParams).AccessToken;
 
             //Initialize a Noark client
             InitClient(opts);
             client.AuthToken = accessToken;
+
+            //Notice that it is also possible to initialize а ssl-based Noark client without providing
+            //client certificate:
+            //InitClientWithoutClientCertificate(opts);
 
             testDoc = opts.TestDoc;
         }
 
         private static void InitIdpClient(Options options)
         {
-            idpClient = new IdpClient(options.IdpServerAddress, true);
+            idpClient = new Oauth2HttpClient(options.IdpServerAddress, true);
         }
 
         private static void InitClient(Options options)
         {
             client = new NoarkClient(options.ServerAddress, options.CertificatePath, options.CertificatePass, true);
+        }
+
+        private static void InitClientWithoutClientCertificate(Options options)
+        {
+            client = new NoarkClient(options.ServerAddress, true);
         }
 
         private static void JournalingSample()
