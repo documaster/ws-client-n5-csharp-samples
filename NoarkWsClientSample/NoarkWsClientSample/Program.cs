@@ -24,6 +24,7 @@ namespace NoarkWsClientSample
 
             JournalingSample();
             ArchiveSample();
+            MeetingAndBoardHandlingDataSample();
             BusinessSpecificMetadataSample();
             CodeListsSample();
         }
@@ -445,6 +446,93 @@ namespace NoarkWsClientSample
             var dokumentversjon = savedObjects[newDokumentversjon.Id] as Dokumentversjon;
             Console.WriteLine(
                 $"Created Dokumentversjon: Id={dokumentversjon.Id}, Versjonsnummer: {dokumentversjon.Versjonsnummer}, Filstoerrelse: {dokumentversjon.Filstoerrelse}");
+        }
+
+        private static void MeetingAndBoardHandlingDataSample()
+        {
+            Console.WriteLine($"Meeting and board handling data example {Environment.NewLine}");
+
+            //Create a new Arkiv with an Arkivskaper
+            //Create a new Arkivdel in the Arkiv
+            var newArkivskaper = new Arkivskaper("B7-23-W5", "John Smith");
+            var newArkiv = new Arkiv("Arkiv");
+            var newArkivdel = new Arkivdel("2007/8");
+
+            var transactionResponse = client.Transaction()
+                .Save(newArkiv)
+                .Save(newArkivskaper)
+                .Save(newArkivdel)
+                .Link(newArkiv.LinkArkivskaper(newArkivskaper))
+                .Link(newArkivdel.LinkArkiv(newArkiv))
+                .Commit();
+
+            var arkiv = transactionResponse.Saved[newArkiv.Id] as Arkiv;
+            Console.WriteLine(
+                $"Created Arkiv: Id={arkiv.Id}, Arkivstatus={arkiv.Arkivstatus.Code}, OpprettetDato={arkiv.OpprettetDato}");
+
+            var arkivdel = transactionResponse.Saved[newArkivdel.Id] as Arkivdel;
+            Console.WriteLine($"Created Arkivdel: Id={arkivdel.Id}, Arkivdelstatus={arkivdel.Arkivdelstatus.Code}");
+
+            //Create a new Moetemappe and Moetedeltaker
+            Moetemappe newMappe = new Moetemappe("Moetemappe Tittel", "Moetenummer", "Utvalg");
+            Moetedeltaker moetedeltaker = new Moetedeltaker("Moetedeltaker Navn");
+
+            transactionResponse = client.Transaction()
+                .Save(newMappe)
+                .Link(newMappe.LinkArkivdel(arkivdel))
+                .Save(moetedeltaker)
+                .Link(moetedeltaker.LinkMappe(newMappe))
+                .Commit();
+
+            var mappe = transactionResponse.Saved[newMappe.Id] as Moetemappe;
+            Console.WriteLine($"Created Mappe: Id={mappe.Id}, Tittel={mappe.Tittel}");
+            Console.WriteLine($"Created Moetedeltaker: Navn={moetedeltaker.Navn}");
+
+            //Create a new AdministrativEnhett code list value
+            AdministrativEnhet newAdministrativEnhet =
+                new AdministrativEnhet(Guid.NewGuid().ToString(), Guid.NewGuid().ToString());
+            AdministrativEnhet administrativEnhet = client.PutCodeListValue(newAdministrativEnhet);
+
+            //Create a new Moeteregistrering
+            Moeteregistrering newMoeteregistrering = new Moeteregistrering("Tittel", "Saksbehandler",
+                administrativEnhet, Moeteregistreringstype.MOETEINNKALLING);
+            transactionResponse = client.Transaction()
+                .Save(newMoeteregistrering)
+                .Link(newMoeteregistrering.LinkMappe(mappe))
+                .Commit();
+
+            var moeteregistrering = transactionResponse.Saved[newMoeteregistrering.Id] as Moeteregistrering;
+            Console.WriteLine(
+                $"Created Moeteregistrering: Id={moeteregistrering.Id}, Tittel={moeteregistrering.Tittel}"); ;
+
+            //Upload a file
+            Dokumentfil dokumentfil;
+            using (var inputStream = File.OpenRead(testDoc))
+            {
+                dokumentfil = client.Upload(inputStream, "godkjenning.pdf");
+            }
+            Console.WriteLine($"Uploaded file {testDoc}");
+
+            //Create a new Dokumenttype code list value
+            Dokumenttype newDokumenttype = new Dokumenttype(Guid.NewGuid().ToString(), Guid.NewGuid().ToString());
+            Dokumenttype dokumenttype = client.PutCodeListValue(newDokumenttype);
+
+            //Link the Dokument to the Moeteregistrering
+            var newDokument = new Dokument(dokumenttype, "Tilbud (Smith, John, Godkjent)",
+                TilknyttetRegistreringSom.HOVEDDOKUMENT);
+            var newDokumentversjon = new Dokumentversjon(Variantformat.PRODUKSJONSFORMAT, ".pdf", dokumentfil);
+
+            transactionResponse = client.Transaction()
+                .Save(newDokument)
+                .Link(newDokument.LinkRegistrering(moeteregistrering))
+                .Save(newDokumentversjon)
+                .Link(newDokumentversjon.LinkDokument(newDokument))
+                .Commit();
+
+            var dokumentversjon = transactionResponse.Saved[newDokumentversjon.Id] as Dokumentversjon;
+            Console.WriteLine(
+                $"Created Dokumentversjon: Id={dokumentversjon.Id}, Versjonsnummer: {dokumentversjon.Versjonsnummer}, Filstoerrelse: {dokumentversjon.Filstoerrelse}");
+            Console.WriteLine();
         }
 
         private static void BusinessSpecificMetadataSample()
