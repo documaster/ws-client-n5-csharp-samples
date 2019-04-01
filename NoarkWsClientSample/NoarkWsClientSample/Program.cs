@@ -104,7 +104,6 @@ namespace NoarkWsClientSample
                 .Link(newArkiv.LinkArkivskaper(newArkivskaper))
                 .Commit();
 
-
             //When the transaction is committed, the transaction response contains a map with saved objects.
             //One can access the saved Arkiv by providing its temporary Id as a key to the map.
             //Notice that arkiv.Id is the permanent Id of the Arkiv.
@@ -139,17 +138,13 @@ namespace NoarkWsClientSample
             var klassifikasjonssystemId = transactionResponse.Saved[newKlassifikasjonssystem.Id].Id;
             var klasseId = transactionResponse.Saved[newKlasse.Id].Id;
 
-            //To screen an Arkivdel we should first search the system for available screening codes
-            var screeningCodesList = client.CodeLists(field: "skjerming").First();
-            Console.WriteLine($"Screening codes:");
-            foreach (var code in screeningCodesList.Values)
-            {
-                Console.WriteLine($"    Code={code.Code}");
-            }
-            var screeningCode = screeningCodesList.Values.First();
+            //Create a screening code
+            Skjerming newSkjerming = new Skjerming(Guid.NewGuid().ToString(), Guid.NewGuid().ToString(), "Description",
+                "Authority");
+            Skjerming skjerming = client.PutCodeListValue(newSkjerming);
 
             //Screen the Arkivdel
-            arkivdel.Skjerming = new Skjerming(screeningCode.Code);
+            arkivdel.Skjerming = skjerming;
             transactionResponse = client.Transaction()
                 .Save(arkivdel)
                 .Commit();
@@ -188,11 +183,15 @@ namespace NoarkWsClientSample
             var sekundaerKlasseId =
                 transactionResponse.Saved[klasseInSekundaerKlassifikasjonssystemSkole.Id].Id;
 
+            //Create a new administrativEnhet value
+            AdministrativEnhet newAdministrativEnhet =
+                new AdministrativEnhet(Guid.NewGuid().ToString(), Guid.NewGuid().ToString());
+            AdministrativEnhet administrativEnhet = client.PutCodeListValue(newAdministrativEnhet);
+
             //Create a new Saksmappe in the Arkivdel
-            //The code list value "admUnit" in the AdministrativEnhet code list must exists in the system!
             //The new Saksmappe needs to have a Klasse in the primary Klassifikasjonssystem of the Arkivdel
             //Also link the Saksmappe to a secondary Klasse
-            var newSaksmappe = new Saksmappe("Tilbud (Smith, John)", new AdministrativEnhet("admUnit"));
+            var newSaksmappe = new Saksmappe("Tilbud (Smith, John)", administrativEnhet);
             var newSakspart = new Sakspart("Alice", "internal");
 
             var savedObjects = client.Transaction()
@@ -274,18 +273,12 @@ namespace NoarkWsClientSample
             }
             Console.WriteLine($"Uploaded file {testDoc}");
 
-            //Get available values for the Dokumenttype code list
-            var dokumenttypeList = client.CodeLists("Dokument", "dokumenttype").First();
-            if (dokumenttypeList.Values.Count == 0)
-            {
-                Console.WriteLine(
-                    "Can not create an instance of Dokument because there are not available values in the Dokumenttype code list!");
-                return;
-            }
-            var dokumentTypeCode = dokumenttypeList.Values.First().Code;
+            //Create a new value for Dokumenttype
+            Dokumenttype newDokumenttype = new Dokumenttype(Guid.NewGuid().ToString(), Guid.NewGuid().ToString());
+            Dokumenttype dokumenttype = client.PutCodeListValue(newDokumenttype);
 
             //Create a new Dokument and Dokumentversjon using the uploaded file
-            var newDokument = new Dokument(new Dokumenttype(dokumentTypeCode), "Tilbud (Smith, John, Godkjent)",
+            var newDokument = new Dokument(dokumenttype, "Tilbud (Smith, John, Godkjent)",
                 TilknyttetRegistreringSom.HOVEDDOKUMENT);
             var newDokumentversjon = new Dokumentversjon(Variantformat.PRODUKSJONSFORMAT, ".pdf", dokumentfil);
 
@@ -503,7 +496,8 @@ namespace NoarkWsClientSample
 
             var moeteregistrering = transactionResponse.Saved[newMoeteregistrering.Id] as Moeteregistrering;
             Console.WriteLine(
-                $"Created Moeteregistrering: Id={moeteregistrering.Id}, Tittel={moeteregistrering.Tittel}"); ;
+                $"Created Moeteregistrering: Id={moeteregistrering.Id}, Tittel={moeteregistrering.Tittel}");
+            ;
 
             //Upload a file
             Dokumentfil dokumentfil;
@@ -551,7 +545,7 @@ namespace NoarkWsClientSample
 
             //Create a new string field with predefined values "value 1", "value 2" and "value 3"
             MetadataFieldInfo newFieldStr = new MetadataFieldInfo(STRING_FIELD_ID, "BSM Field String",
-                "BSM Field Description", FieldType.String, new List<object>() { "value 1", "value 2", "value 3" });
+                "BSM Field Description", FieldType.String, new List<object>() {"value 1", "value 2", "value 3"});
             MetadataFieldInfo savedFieldStr = client.PutBsmField(GROUP_ID, newFieldStr);
             Console.WriteLine(
                 $"Created new field: FieldId={savedFieldStr.FieldId}, FieldType={savedFieldStr.FieldType}, FieldName={savedFieldStr.FieldName}, FieldValues={string.Join(",", savedFieldStr.FieldValues)}");
@@ -559,7 +553,7 @@ namespace NoarkWsClientSample
 
             //Create a new long field with predefined values 1 and 2
             MetadataFieldInfo newFieldLong = new MetadataFieldInfo(LONG_FIELD_ID, "BSM Field Long",
-                "BSM Field Description", FieldType.Long, new List<object>() { 1L, 2L });
+                "BSM Field Description", FieldType.Long, new List<object>() {1L, 2L});
             MetadataFieldInfo savedFieldLong = client.PutBsmField(GROUP_ID, newFieldLong);
             Console.WriteLine(
                 $"Created new field: FieldId={savedFieldLong.FieldId}, FieldType={savedFieldLong.FieldType}, FieldName={savedFieldLong.FieldName}, FieldValues={string.Join(",", savedFieldLong.FieldValues)}");
@@ -718,7 +712,8 @@ namespace NoarkWsClientSample
             Console.WriteLine();
 
             //Create new list value for the code list Dokumenttype
-            Dokumenttype dokumenttype = new Dokumenttype(Guid.NewGuid().ToString(), Guid.NewGuid().ToString(), "Description");
+            Dokumenttype dokumenttype = new Dokumenttype(Guid.NewGuid().ToString(), Guid.NewGuid().ToString(),
+                "Description");
             client.PutCodeListValue(dokumenttype);
             Console.WriteLine(
                 $"Created new code value: Code={dokumenttype.Code}, Name={dokumenttype.Name}, Description={dokumenttype.Description}");
