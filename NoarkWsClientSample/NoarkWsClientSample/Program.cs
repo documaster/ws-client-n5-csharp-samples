@@ -25,6 +25,7 @@ namespace NoarkWsClientSample
             JournalingSample();
             ArchiveSample();
             BusinessSpecificMetadataSample();
+            CodeListsSample();
         }
 
         private static Options ParserCommandLineArguments(string[] args)
@@ -608,6 +609,43 @@ namespace NoarkWsClientSample
             //Delete group
             client.DeleteBsmGroup(GROUP_ID);
             Console.WriteLine($"Deleted group with GroupId={GROUP_ID}");
+            Console.WriteLine();
+        }
+
+        private static void CodeListsSample()
+        {
+            List<CodeList> allCodeLists = client.CodeLists();
+
+            Console.WriteLine($"Code lists:{Environment.NewLine}");
+            foreach (CodeList list in allCodeLists)
+            {
+                Console.WriteLine($"Code list: {list.Type}.{list.Field}");
+                foreach (CodeValue codeValue in list.Values)
+                {
+                    Console.WriteLine(
+                        $" --- Code value: Code={codeValue.Code}, Name={codeValue.Name}, Description={codeValue.Description}");
+                }
+                Console.WriteLine();
+            }
+            Console.WriteLine();
+
+            //Create new list value for the code list Dokumenttype
+            Dokumenttype dokumenttype = new Dokumenttype(Guid.NewGuid().ToString(), Guid.NewGuid().ToString(), "Description");
+            client.PutCodeListValue(dokumenttype);
+            Console.WriteLine(
+                $"Created new code value: Code={dokumenttype.Code}, Name={dokumenttype.Name}, Description={dokumenttype.Description}");
+            Console.WriteLine();
+
+            //Update list value
+            Dokumenttype updatedValue = new Dokumenttype(dokumenttype.Code, dokumenttype.Name, "New Description");
+            client.PutCodeListValue(updatedValue);
+            Console.WriteLine(
+                $"Updated code value: Code={updatedValue.Code}, Name={updatedValue.Name}, Description={updatedValue.Description}");
+            Console.WriteLine();
+
+            //Delete list value
+            client.DeleteCodeListValue(updatedValue);
+            Console.WriteLine($"Deleted code value");
             Console.WriteLine();
         }
     }
