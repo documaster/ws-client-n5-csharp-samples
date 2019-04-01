@@ -448,15 +448,54 @@ namespace NoarkWsClientSample
 
         private static void BusinessSpecificMetadataSample()
         {
-            const string GROUP_ID = "APPR-03";
+            string GROUP_ID = $"gr-{Guid.NewGuid().ToString()}";
+            string STRING_FIELD_ID = $"f-{Guid.NewGuid().ToString()}";
+            string DOUBLE_FIELD_ID = $"f-{Guid.NewGuid().ToString()}";
+            string LONG_FIELD_ID = $"f-{Guid.NewGuid().ToString()}";
 
-            //Get the business-specific metadata registry for a group with group Id "APPR-03"
+            //Create a business-specific metadata group
+            MetadataGroupInfo newGroup = new MetadataGroupInfo(GROUP_ID, "BSM Group Name", "BSM Group Description");
+            MetadataGroupInfo savedGroup = client.PutBsmGroup(newGroup);
+            Console.WriteLine(
+                $"Created new group: GroupId={savedGroup.GroupId}, GroupDescription={savedGroup.GroupDescription}, GroupName={savedGroup.GroupName}");
+            Console.WriteLine();
+
+            //Create a new string field with predefined values "value 1", "value 2" and "value 3"
+            MetadataFieldInfo newFieldStr = new MetadataFieldInfo(STRING_FIELD_ID, "BSM Field String",
+                "BSM Field Description", FieldType.String, new List<object>() { "value 1", "value 2", "value 3" });
+            MetadataFieldInfo savedFieldStr = client.PutBsmField(GROUP_ID, newFieldStr);
+            Console.WriteLine(
+                $"Created new field: FieldId={savedFieldStr.FieldId}, FieldType={savedFieldStr.FieldType}, FieldName={savedFieldStr.FieldName}, FieldValues={string.Join(",", savedFieldStr.FieldValues)}");
+            Console.WriteLine();
+
+            //Create a new long field with predefined values 1 and 2
+            MetadataFieldInfo newFieldLong = new MetadataFieldInfo(LONG_FIELD_ID, "BSM Field Long",
+                "BSM Field Description", FieldType.Long, new List<object>() { 1L, 2L });
+            MetadataFieldInfo savedFieldLong = client.PutBsmField(GROUP_ID, newFieldLong);
+            Console.WriteLine(
+                $"Created new field: FieldId={savedFieldLong.FieldId}, FieldType={savedFieldLong.FieldType}, FieldName={savedFieldLong.FieldName}, FieldValues={string.Join(",", savedFieldLong.FieldValues)}");
+
+            //Create a new double field with no predefined values
+            MetadataFieldInfo newFieldDouble = new MetadataFieldInfo(DOUBLE_FIELD_ID, "BSM Field Double",
+                "BSM Field Description", FieldType.Double);
+            MetadataFieldInfo savedFielDouble = client.PutBsmField(GROUP_ID, newFieldDouble);
+            Console.WriteLine(
+                $"Created new field: FieldId={newFieldDouble.FieldId}, FieldType={newFieldDouble.FieldType}, FieldName={newFieldDouble.FieldName}");
+            Console.WriteLine();
+
+            //Update string field - add new field value, remove an old one
+            savedFieldStr.FieldValues.Add("value 4");
+            savedFieldStr.FieldValues.Remove("value 3");
+            MetadataFieldInfo updatedField = client.PutBsmField(GROUP_ID, savedFieldStr);
+            Console.WriteLine(
+                $"Updated field: FieldId={updatedField.FieldId}, FieldType={updatedField.FieldType}, FieldName={updatedField.FieldName}, FieldValues={string.Join(",", updatedField.FieldValues)}");
+            Console.WriteLine();
+
+            //Get the business-specific metadata registry for a specific group
             BusinessSpecificMetadataInfo metadataInfo = client.BsmRegistry(GROUP_ID);
 
+            Console.WriteLine("BusinessSpecificMetadataInfo:");
             //Print the registry for this group
-            //Also find one string-type, long-type and double-type field
-            string stringFieldId = null, doubleFieldId = null, longFieldId = null;
-
             foreach (MetadataGroupInfo groupInfo in metadataInfo.Groups)
             {
                 Console.WriteLine(
@@ -465,22 +504,9 @@ namespace NoarkWsClientSample
                 {
                     Console.WriteLine(
                         $" ---- FieldInfo: FieldId={fieldInfo.FieldId}, FieldType={fieldInfo.FieldType}, FieldName={fieldInfo.FieldName}");
-
-                    if (fieldInfo.FieldType == FieldType.String && stringFieldId == null)
-                    {
-                        stringFieldId = fieldInfo.FieldId;
-                    }
-
-                    if (fieldInfo.FieldType == FieldType.Double && doubleFieldId == null)
-                    {
-                        doubleFieldId = fieldInfo.FieldId;
-                    }
-                    if (fieldInfo.FieldType == FieldType.Long && longFieldId == null)
-                    {
-                        longFieldId = fieldInfo.FieldId;
-                    }
                 }
             }
+            Console.WriteLine("--------------------------------------------------------------------------");
             Console.WriteLine();
 
             //Create an Arkiv, Arkivdel and one Mappe
@@ -492,21 +518,10 @@ namespace NoarkWsClientSample
             var mappe = new Mappe("Mappe with VirksomhetsspesifikkeMetadata");
 
             //Add three meta-data fields to the Mappe:
-            if (stringFieldId != null)
-            {
-                mappe.VirksomhetsspesifikkeMetadata.AddBsmFieldValues(GROUP_ID, stringFieldId, "value 1",
-                    "string value 2");
-            }
-
-            if (doubleFieldId != null)
-            {
-                mappe.VirksomhetsspesifikkeMetadata.AddBsmFieldValues(GROUP_ID, doubleFieldId, 5.63, 6.7);
-            }
-
-            if (longFieldId != null)
-            {
-                mappe.VirksomhetsspesifikkeMetadata.AddBsmFieldValues(GROUP_ID, longFieldId, 167907000L);
-            }
+            mappe.VirksomhetsspesifikkeMetadata.AddBsmFieldValues(GROUP_ID, STRING_FIELD_ID, "value 1",
+                "value 2");
+            mappe.VirksomhetsspesifikkeMetadata.AddBsmFieldValues(GROUP_ID, DOUBLE_FIELD_ID, 1.2);
+            mappe.VirksomhetsspesifikkeMetadata.AddBsmFieldValues(GROUP_ID, LONG_FIELD_ID, 2L);
 
             var transactionResponse = client.Transaction()
                 .Save(arkiv)
@@ -522,6 +537,7 @@ namespace NoarkWsClientSample
             mappe = transactionResponse.Saved[mappe.Id] as Mappe;
 
             //Print the VirksomhetsspesifikkeMetadata of the Mappe
+            Console.WriteLine("Added VirksomhetsspesifikkeMetadata to folder:");
             BsmGroupsMap groupsMap = mappe.VirksomhetsspesifikkeMetadata;
             foreach (var groupId in groupsMap.Keys)
             {
@@ -538,28 +554,19 @@ namespace NoarkWsClientSample
             //Update the VirksomhetsspesifikkeMetadata of the Mappe
 
             //Add one more string value to the string field
-            if (stringFieldId != null)
-            {
-                //To add a new field value, simply add it to the set of values of the particular field
-                //Use the "AddBsmFieldValues" method, if you want to override the existing set of values with a new one
-                mappe.VirksomhetsspesifikkeMetadata[GROUP_ID][stringFieldId].Values.Add("string value 3");
-            }
+
+            //To add a new field value, simply add it to the set of values of the particular field
+            //Use the "AddBsmFieldValues" method, if you want to override the existing set of values with a new one
+            mappe.VirksomhetsspesifikkeMetadata[GROUP_ID][STRING_FIELD_ID].Values.Add("value 4");
 
             //Remove one of the values of the double field
-            if (doubleFieldId != null)
-            {
-                mappe.VirksomhetsspesifikkeMetadata.DeleteBsmFieldValue(GROUP_ID, doubleFieldId, 5.63);
-            }
+            mappe.VirksomhetsspesifikkeMetadata.DeleteBsmFieldValue(GROUP_ID, DOUBLE_FIELD_ID, 2.6);
 
             //Completely remove the long field
-            if (longFieldId != null)
-            {
-                mappe.VirksomhetsspesifikkeMetadata.DeleteBsmField(GROUP_ID, longFieldId);
-            }
+            mappe.VirksomhetsspesifikkeMetadata.DeleteBsmField(GROUP_ID, LONG_FIELD_ID);
 
             //It is also possible to remove a whole group:
             //mappe.VirksomhetsspesifikkeMetadata.DeleteBsmGroup(groupIdentfier);
-
             transactionResponse = client.Transaction()
                 .Save(mappe)
                 .Commit();
@@ -572,6 +579,7 @@ namespace NoarkWsClientSample
             mappe = queryResponse.Results.First();
 
             //Print the new VirksomhetsspesifikkeMetadata
+            Console.WriteLine("Updated VirksomhetsspesifikkeMetadata of folder:");
             groupsMap = mappe.VirksomhetsspesifikkeMetadata;
             foreach (var groupId in groupsMap.Keys)
             {
@@ -584,6 +592,22 @@ namespace NoarkWsClientSample
                 }
             }
 
+            Console.WriteLine();
+
+
+            //Delete field
+            client.DeleteBsmField(GROUP_ID, LONG_FIELD_ID);
+            Console.WriteLine($"Deleted field with  FieldId={LONG_FIELD_ID}");
+            Console.WriteLine();
+
+            //Delete folder
+            client.Transaction().Delete(mappe).Commit();
+            Console.WriteLine($"Deleted folder");
+            Console.WriteLine();
+
+            //Delete group
+            client.DeleteBsmGroup(GROUP_ID);
+            Console.WriteLine($"Deleted group with GroupId={GROUP_ID}");
             Console.WriteLine();
         }
     }
