@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using CommandLine;
@@ -6,13 +7,14 @@ using Documaster.WebApi.Client.Noark5;
 using Documaster.WebApi.Client.Noark5.Client;
 using Documaster.WebApi.Client.Noark5.NoarkEntities;
 using Documaster.WebApi.Client.IDP;
+using Documaster.WebApi.Client.IDP.Oauth2;
 
 namespace NoarkWsClientSample
 {
     class Program
     {
         private static NoarkClient client;
-        private static IdpClient idpClient;
+        private static Oauth2HttpClient idpClient;
         static string testDoc;
 
         public static void Main(string[] args)
@@ -22,7 +24,9 @@ namespace NoarkWsClientSample
 
             JournalingSample();
             ArchiveSample();
+            MeetingAndBoardHandlingDataSample();
             BusinessSpecificMetadataSample();
+            CodeListsSample();
         }
 
         private static Options ParserCommandLineArguments(string[] args)
@@ -55,24 +59,34 @@ namespace NoarkWsClientSample
 
             //Initialize an IDP client and request an authorization token
             InitIdpClient(opts);
-            var accessToken = idpClient.GetTokenWithPasswordGrantType(
-                opts.ClientId, opts.ClientSecret, opts.Username, opts.Password).AccessToken;
+            PasswordGrantTypeParams passwordGrantTypeParams = new PasswordGrantTypeParams(
+                opts.ClientId, opts.ClientSecret, opts.Username, opts.Password, OpenIDConnectScope.OPENID);
+            var accessToken = idpClient.GetTokenWithPasswordGrantType(passwordGrantTypeParams).AccessToken;
 
             //Initialize a Noark client
             InitClient(opts);
             client.AuthToken = accessToken;
+
+            //Notice that it is also possible to initialize а ssl-based Noark client without providing
+            //client certificate:
+            //InitClientWithoutClientCertificate(opts);
 
             testDoc = opts.TestDoc;
         }
 
         private static void InitIdpClient(Options options)
         {
-            idpClient = new IdpClient(options.IdpServerAddress, true);
+            idpClient = new Oauth2HttpClient(options.IdpServerAddress, true);
         }
 
         private static void InitClient(Options options)
         {
             client = new NoarkClient(options.ServerAddress, options.CertificatePath, options.CertificatePass, true);
+        }
+
+        private static void InitClientWithoutClientCertificate(Options options)
+        {
+            client = new NoarkClient(options.ServerAddress, true);
         }
 
         private static void JournalingSample()
@@ -89,7 +103,6 @@ namespace NoarkWsClientSample
                 .Save(newArkivskaper)
                 .Link(newArkiv.LinkArkivskaper(newArkivskaper))
                 .Commit();
-
 
             //When the transaction is committed, the transaction response contains a map with saved objects.
             //One can access the saved Arkiv by providing its temporary Id as a key to the map.
@@ -125,17 +138,13 @@ namespace NoarkWsClientSample
             var klassifikasjonssystemId = transactionResponse.Saved[newKlassifikasjonssystem.Id].Id;
             var klasseId = transactionResponse.Saved[newKlasse.Id].Id;
 
-            //To screen an Arkivdel we should first search the system for available screening codes
-            var screeningCodesList = client.CodeLists(field: "skjerming").First();
-            Console.WriteLine($"Screening codes:");
-            foreach (var code in screeningCodesList.Values)
-            {
-                Console.WriteLine($"    Code={code.Code}");
-            }
-            var screeningCode = screeningCodesList.Values.First();
+            //Create a screening code
+            Skjerming newSkjerming = new Skjerming(Guid.NewGuid().ToString(), Guid.NewGuid().ToString(), "Description",
+                "Authority");
+            Skjerming skjerming = client.PutCodeListValue(newSkjerming);
 
             //Screen the Arkivdel
-            arkivdel.Skjerming = new Skjerming(screeningCode.Code);
+            arkivdel.Skjerming = skjerming;
             transactionResponse = client.Transaction()
                 .Save(arkivdel)
                 .Commit();
@@ -174,11 +183,15 @@ namespace NoarkWsClientSample
             var sekundaerKlasseId =
                 transactionResponse.Saved[klasseInSekundaerKlassifikasjonssystemSkole.Id].Id;
 
+            //Create a new administrativEnhet value
+            AdministrativEnhet newAdministrativEnhet =
+                new AdministrativEnhet(Guid.NewGuid().ToString(), Guid.NewGuid().ToString());
+            AdministrativEnhet administrativEnhet = client.PutCodeListValue(newAdministrativEnhet);
+
             //Create a new Saksmappe in the Arkivdel
-            //The code list value "admUnit" in the AdministrativEnhet code list must exists in the system!
             //The new Saksmappe needs to have a Klasse in the primary Klassifikasjonssystem of the Arkivdel
             //Also link the Saksmappe to a secondary Klasse
-            var newSaksmappe = new Saksmappe("Tilbud (Smith, John)", new AdministrativEnhet("admUnit"));
+            var newSaksmappe = new Saksmappe("Tilbud (Smith, John)", administrativEnhet);
             var newSakspart = new Sakspart("Alice", "internal");
 
             var savedObjects = client.Transaction()
@@ -260,18 +273,12 @@ namespace NoarkWsClientSample
             }
             Console.WriteLine($"Uploaded file {testDoc}");
 
-            //Get available values for the Dokumenttype code list
-            var dokumenttypeList = client.CodeLists("Dokument", "dokumenttype").First();
-            if (dokumenttypeList.Values.Count == 0)
-            {
-                Console.WriteLine(
-                    "Can not create an instance of Dokument because there are not available values in the Dokumenttype code list!");
-                return;
-            }
-            var dokumentTypeCode = dokumenttypeList.Values.First().Code;
+            //Create a new value for Dokumenttype
+            Dokumenttype newDokumenttype = new Dokumenttype(Guid.NewGuid().ToString(), Guid.NewGuid().ToString());
+            Dokumenttype dokumenttype = client.PutCodeListValue(newDokumenttype);
 
             //Create a new Dokument and Dokumentversjon using the uploaded file
-            var newDokument = new Dokument(new Dokumenttype(dokumentTypeCode), "Tilbud (Smith, John, Godkjent)",
+            var newDokument = new Dokument(dokumenttype, "Tilbud (Smith, John, Godkjent)",
                 TilknyttetRegistreringSom.HOVEDDOKUMENT);
             var newDokumentversjon = new Dokumentversjon(Variantformat.PRODUKSJONSFORMAT, ".pdf", dokumentfil);
 
@@ -434,17 +441,144 @@ namespace NoarkWsClientSample
                 $"Created Dokumentversjon: Id={dokumentversjon.Id}, Versjonsnummer: {dokumentversjon.Versjonsnummer}, Filstoerrelse: {dokumentversjon.Filstoerrelse}");
         }
 
+        private static void MeetingAndBoardHandlingDataSample()
+        {
+            Console.WriteLine($"Meeting and board handling data example {Environment.NewLine}");
+
+            //Create a new Arkiv with an Arkivskaper
+            //Create a new Arkivdel in the Arkiv
+            var newArkivskaper = new Arkivskaper("B7-23-W5", "John Smith");
+            var newArkiv = new Arkiv("Arkiv");
+            var newArkivdel = new Arkivdel("2007/8");
+
+            var transactionResponse = client.Transaction()
+                .Save(newArkiv)
+                .Save(newArkivskaper)
+                .Save(newArkivdel)
+                .Link(newArkiv.LinkArkivskaper(newArkivskaper))
+                .Link(newArkivdel.LinkArkiv(newArkiv))
+                .Commit();
+
+            var arkiv = transactionResponse.Saved[newArkiv.Id] as Arkiv;
+            Console.WriteLine(
+                $"Created Arkiv: Id={arkiv.Id}, Arkivstatus={arkiv.Arkivstatus.Code}, OpprettetDato={arkiv.OpprettetDato}");
+
+            var arkivdel = transactionResponse.Saved[newArkivdel.Id] as Arkivdel;
+            Console.WriteLine($"Created Arkivdel: Id={arkivdel.Id}, Arkivdelstatus={arkivdel.Arkivdelstatus.Code}");
+
+            //Create a new Moetemappe and Moetedeltaker
+            Moetemappe newMappe = new Moetemappe("Moetemappe Tittel", "Moetenummer", "Utvalg");
+            Moetedeltaker moetedeltaker = new Moetedeltaker("Moetedeltaker Navn");
+
+            transactionResponse = client.Transaction()
+                .Save(newMappe)
+                .Link(newMappe.LinkArkivdel(arkivdel))
+                .Save(moetedeltaker)
+                .Link(moetedeltaker.LinkMappe(newMappe))
+                .Commit();
+
+            var mappe = transactionResponse.Saved[newMappe.Id] as Moetemappe;
+            Console.WriteLine($"Created Mappe: Id={mappe.Id}, Tittel={mappe.Tittel}");
+            Console.WriteLine($"Created Moetedeltaker: Navn={moetedeltaker.Navn}");
+
+            //Create a new AdministrativEnhett code list value
+            AdministrativEnhet newAdministrativEnhet =
+                new AdministrativEnhet(Guid.NewGuid().ToString(), Guid.NewGuid().ToString());
+            AdministrativEnhet administrativEnhet = client.PutCodeListValue(newAdministrativEnhet);
+
+            //Create a new Moeteregistrering
+            Moeteregistrering newMoeteregistrering = new Moeteregistrering("Tittel", "Saksbehandler",
+                administrativEnhet, Moeteregistreringstype.MOETEINNKALLING);
+            transactionResponse = client.Transaction()
+                .Save(newMoeteregistrering)
+                .Link(newMoeteregistrering.LinkMappe(mappe))
+                .Commit();
+
+            var moeteregistrering = transactionResponse.Saved[newMoeteregistrering.Id] as Moeteregistrering;
+            Console.WriteLine(
+                $"Created Moeteregistrering: Id={moeteregistrering.Id}, Tittel={moeteregistrering.Tittel}");
+            ;
+
+            //Upload a file
+            Dokumentfil dokumentfil;
+            using (var inputStream = File.OpenRead(testDoc))
+            {
+                dokumentfil = client.Upload(inputStream, "godkjenning.pdf");
+            }
+            Console.WriteLine($"Uploaded file {testDoc}");
+
+            //Create a new Dokumenttype code list value
+            Dokumenttype newDokumenttype = new Dokumenttype(Guid.NewGuid().ToString(), Guid.NewGuid().ToString());
+            Dokumenttype dokumenttype = client.PutCodeListValue(newDokumenttype);
+
+            //Link the Dokument to the Moeteregistrering
+            var newDokument = new Dokument(dokumenttype, "Tilbud (Smith, John, Godkjent)",
+                TilknyttetRegistreringSom.HOVEDDOKUMENT);
+            var newDokumentversjon = new Dokumentversjon(Variantformat.PRODUKSJONSFORMAT, ".pdf", dokumentfil);
+
+            transactionResponse = client.Transaction()
+                .Save(newDokument)
+                .Link(newDokument.LinkRegistrering(moeteregistrering))
+                .Save(newDokumentversjon)
+                .Link(newDokumentversjon.LinkDokument(newDokument))
+                .Commit();
+
+            var dokumentversjon = transactionResponse.Saved[newDokumentversjon.Id] as Dokumentversjon;
+            Console.WriteLine(
+                $"Created Dokumentversjon: Id={dokumentversjon.Id}, Versjonsnummer: {dokumentversjon.Versjonsnummer}, Filstoerrelse: {dokumentversjon.Filstoerrelse}");
+            Console.WriteLine();
+        }
+
         private static void BusinessSpecificMetadataSample()
         {
-            const string GROUP_ID = "APPR-03";
+            string GROUP_ID = $"gr-{Guid.NewGuid().ToString()}";
+            string STRING_FIELD_ID = $"f-{Guid.NewGuid().ToString()}";
+            string DOUBLE_FIELD_ID = $"f-{Guid.NewGuid().ToString()}";
+            string LONG_FIELD_ID = $"f-{Guid.NewGuid().ToString()}";
 
-            //Get the business-specific metadata registry for a group with group Id "APPR-03"
+            //Create a business-specific metadata group
+            MetadataGroupInfo newGroup = new MetadataGroupInfo(GROUP_ID, "BSM Group Name", "BSM Group Description");
+            MetadataGroupInfo savedGroup = client.PutBsmGroup(newGroup);
+            Console.WriteLine(
+                $"Created new group: GroupId={savedGroup.GroupId}, GroupDescription={savedGroup.GroupDescription}, GroupName={savedGroup.GroupName}");
+            Console.WriteLine();
+
+            //Create a new string field with predefined values "value 1", "value 2" and "value 3"
+            MetadataFieldInfo newFieldStr = new MetadataFieldInfo(STRING_FIELD_ID, "BSM Field String",
+                "BSM Field Description", FieldType.String, new List<object>() {"value 1", "value 2", "value 3"});
+            MetadataFieldInfo savedFieldStr = client.PutBsmField(GROUP_ID, newFieldStr);
+            Console.WriteLine(
+                $"Created new field: FieldId={savedFieldStr.FieldId}, FieldType={savedFieldStr.FieldType}, FieldName={savedFieldStr.FieldName}, FieldValues={string.Join(",", savedFieldStr.FieldValues)}");
+            Console.WriteLine();
+
+            //Create a new long field with predefined values 1 and 2
+            MetadataFieldInfo newFieldLong = new MetadataFieldInfo(LONG_FIELD_ID, "BSM Field Long",
+                "BSM Field Description", FieldType.Long, new List<object>() {1L, 2L});
+            MetadataFieldInfo savedFieldLong = client.PutBsmField(GROUP_ID, newFieldLong);
+            Console.WriteLine(
+                $"Created new field: FieldId={savedFieldLong.FieldId}, FieldType={savedFieldLong.FieldType}, FieldName={savedFieldLong.FieldName}, FieldValues={string.Join(",", savedFieldLong.FieldValues)}");
+
+            //Create a new double field with no predefined values
+            MetadataFieldInfo newFieldDouble = new MetadataFieldInfo(DOUBLE_FIELD_ID, "BSM Field Double",
+                "BSM Field Description", FieldType.Double);
+            MetadataFieldInfo savedFielDouble = client.PutBsmField(GROUP_ID, newFieldDouble);
+            Console.WriteLine(
+                $"Created new field: FieldId={newFieldDouble.FieldId}, FieldType={newFieldDouble.FieldType}, FieldName={newFieldDouble.FieldName}");
+            Console.WriteLine();
+
+            //Update string field - add new field value, remove an old one
+            savedFieldStr.FieldValues.Add("value 4");
+            savedFieldStr.FieldValues.Remove("value 3");
+            MetadataFieldInfo updatedField = client.PutBsmField(GROUP_ID, savedFieldStr);
+            Console.WriteLine(
+                $"Updated field: FieldId={updatedField.FieldId}, FieldType={updatedField.FieldType}, FieldName={updatedField.FieldName}, FieldValues={string.Join(",", updatedField.FieldValues)}");
+            Console.WriteLine();
+
+            //Get the business-specific metadata registry for a specific group
             BusinessSpecificMetadataInfo metadataInfo = client.BsmRegistry(GROUP_ID);
 
+            Console.WriteLine("BusinessSpecificMetadataInfo:");
             //Print the registry for this group
-            //Also find one string-type, long-type and double-type field
-            string stringFieldId = null, doubleFieldId = null, longFieldId = null;
-
             foreach (MetadataGroupInfo groupInfo in metadataInfo.Groups)
             {
                 Console.WriteLine(
@@ -453,22 +587,9 @@ namespace NoarkWsClientSample
                 {
                     Console.WriteLine(
                         $" ---- FieldInfo: FieldId={fieldInfo.FieldId}, FieldType={fieldInfo.FieldType}, FieldName={fieldInfo.FieldName}");
-
-                    if (fieldInfo.FieldType == FieldType.String && stringFieldId == null)
-                    {
-                        stringFieldId = fieldInfo.FieldId;
-                    }
-
-                    if (fieldInfo.FieldType == FieldType.Double && doubleFieldId == null)
-                    {
-                        doubleFieldId = fieldInfo.FieldId;
-                    }
-                    if (fieldInfo.FieldType == FieldType.Long && longFieldId == null)
-                    {
-                        longFieldId = fieldInfo.FieldId;
-                    }
                 }
             }
+            Console.WriteLine("--------------------------------------------------------------------------");
             Console.WriteLine();
 
             //Create an Arkiv, Arkivdel and one Mappe
@@ -480,21 +601,10 @@ namespace NoarkWsClientSample
             var mappe = new Mappe("Mappe with VirksomhetsspesifikkeMetadata");
 
             //Add three meta-data fields to the Mappe:
-            if (stringFieldId != null)
-            {
-                mappe.VirksomhetsspesifikkeMetadata.AddBsmFieldValues(GROUP_ID, stringFieldId, "value 1",
-                    "string value 2");
-            }
-
-            if (doubleFieldId != null)
-            {
-                mappe.VirksomhetsspesifikkeMetadata.AddBsmFieldValues(GROUP_ID, doubleFieldId, 5.63, 6.7);
-            }
-
-            if (longFieldId != null)
-            {
-                mappe.VirksomhetsspesifikkeMetadata.AddBsmFieldValues(GROUP_ID, longFieldId, 167907000L);
-            }
+            mappe.VirksomhetsspesifikkeMetadata.AddBsmFieldValues(GROUP_ID, STRING_FIELD_ID, "value 1",
+                "value 2");
+            mappe.VirksomhetsspesifikkeMetadata.AddBsmFieldValues(GROUP_ID, DOUBLE_FIELD_ID, 1.2);
+            mappe.VirksomhetsspesifikkeMetadata.AddBsmFieldValues(GROUP_ID, LONG_FIELD_ID, 2L);
 
             var transactionResponse = client.Transaction()
                 .Save(arkiv)
@@ -510,6 +620,7 @@ namespace NoarkWsClientSample
             mappe = transactionResponse.Saved[mappe.Id] as Mappe;
 
             //Print the VirksomhetsspesifikkeMetadata of the Mappe
+            Console.WriteLine("Added VirksomhetsspesifikkeMetadata to folder:");
             BsmGroupsMap groupsMap = mappe.VirksomhetsspesifikkeMetadata;
             foreach (var groupId in groupsMap.Keys)
             {
@@ -526,28 +637,19 @@ namespace NoarkWsClientSample
             //Update the VirksomhetsspesifikkeMetadata of the Mappe
 
             //Add one more string value to the string field
-            if (stringFieldId != null)
-            {
-                //To add a new field value, simply add it to the set of values of the particular field
-                //Use the "AddBsmFieldValues" method, if you want to override the existing set of values with a new one
-                mappe.VirksomhetsspesifikkeMetadata[GROUP_ID][stringFieldId].Values.Add("string value 3");
-            }
+
+            //To add a new field value, simply add it to the set of values of the particular field
+            //Use the "AddBsmFieldValues" method, if you want to override the existing set of values with a new one
+            mappe.VirksomhetsspesifikkeMetadata[GROUP_ID][STRING_FIELD_ID].Values.Add("value 4");
 
             //Remove one of the values of the double field
-            if (doubleFieldId != null)
-            {
-                mappe.VirksomhetsspesifikkeMetadata.DeleteBsmFieldValue(GROUP_ID, doubleFieldId, 5.63);
-            }
+            mappe.VirksomhetsspesifikkeMetadata.DeleteBsmFieldValue(GROUP_ID, DOUBLE_FIELD_ID, 2.6);
 
             //Completely remove the long field
-            if (longFieldId != null)
-            {
-                mappe.VirksomhetsspesifikkeMetadata.DeleteBsmField(GROUP_ID, longFieldId);
-            }
+            mappe.VirksomhetsspesifikkeMetadata.DeleteBsmField(GROUP_ID, LONG_FIELD_ID);
 
             //It is also possible to remove a whole group:
             //mappe.VirksomhetsspesifikkeMetadata.DeleteBsmGroup(groupIdentfier);
-
             transactionResponse = client.Transaction()
                 .Save(mappe)
                 .Commit();
@@ -560,6 +662,7 @@ namespace NoarkWsClientSample
             mappe = queryResponse.Results.First();
 
             //Print the new VirksomhetsspesifikkeMetadata
+            Console.WriteLine("Updated VirksomhetsspesifikkeMetadata of folder:");
             groupsMap = mappe.VirksomhetsspesifikkeMetadata;
             foreach (var groupId in groupsMap.Keys)
             {
@@ -572,6 +675,60 @@ namespace NoarkWsClientSample
                 }
             }
 
+            Console.WriteLine();
+
+
+            //Delete field
+            client.DeleteBsmField(GROUP_ID, LONG_FIELD_ID);
+            Console.WriteLine($"Deleted field with  FieldId={LONG_FIELD_ID}");
+            Console.WriteLine();
+
+            //Delete folder
+            client.Transaction().Delete(mappe).Commit();
+            Console.WriteLine($"Deleted folder");
+            Console.WriteLine();
+
+            //Delete group
+            client.DeleteBsmGroup(GROUP_ID);
+            Console.WriteLine($"Deleted group with GroupId={GROUP_ID}");
+            Console.WriteLine();
+        }
+
+        private static void CodeListsSample()
+        {
+            List<CodeList> allCodeLists = client.CodeLists();
+
+            Console.WriteLine($"Code lists:{Environment.NewLine}");
+            foreach (CodeList list in allCodeLists)
+            {
+                Console.WriteLine($"Code list: {list.Type}.{list.Field}");
+                foreach (CodeValue codeValue in list.Values)
+                {
+                    Console.WriteLine(
+                        $" --- Code value: Code={codeValue.Code}, Name={codeValue.Name}, Description={codeValue.Description}");
+                }
+                Console.WriteLine();
+            }
+            Console.WriteLine();
+
+            //Create new list value for the code list Dokumenttype
+            Dokumenttype dokumenttype = new Dokumenttype(Guid.NewGuid().ToString(), Guid.NewGuid().ToString(),
+                "Description");
+            client.PutCodeListValue(dokumenttype);
+            Console.WriteLine(
+                $"Created new code value: Code={dokumenttype.Code}, Name={dokumenttype.Name}, Description={dokumenttype.Description}");
+            Console.WriteLine();
+
+            //Update list value
+            Dokumenttype updatedValue = new Dokumenttype(dokumenttype.Code, dokumenttype.Name, "New Description");
+            client.PutCodeListValue(updatedValue);
+            Console.WriteLine(
+                $"Updated code value: Code={updatedValue.Code}, Name={updatedValue.Name}, Description={updatedValue.Description}");
+            Console.WriteLine();
+
+            //Delete list value
+            client.DeleteCodeListValue(updatedValue);
+            Console.WriteLine($"Deleted code value");
             Console.WriteLine();
         }
     }
