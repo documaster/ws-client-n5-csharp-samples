@@ -27,6 +27,7 @@ namespace NoarkWsClientSample
             MeetingAndBoardHandlingDataSample();
             BusinessSpecificMetadataSample();
             CodeListsSample();
+            FullTextSearchSample();
         }
 
         private static Options ParserCommandLineArguments(string[] args)
@@ -81,7 +82,7 @@ namespace NoarkWsClientSample
 
         private static void InitClient(Options options)
         {
-            client = new NoarkClient(options.ServerAddress, options.CertificatePath, options.CertificatePass, true);
+            client = new NoarkClient(options.ServerAddress, true, options.CertificatePath, options.CertificatePass);
         }
 
         private static void InitClientWithoutClientCertificate(Options options)
@@ -730,6 +731,91 @@ namespace NoarkWsClientSample
             client.DeleteCodeListValue(updatedValue);
             Console.WriteLine($"Deleted code value");
             Console.WriteLine();
+        }
+
+        private static void FullTextSearchSample()
+        {
+            //NB: The search below, if executed right after the creation of an Arkivdel, won't return
+            //the Arkivdel in the search results. The time needed to update the search index depends on
+            //the specific installation. The RMS update interval defaults to 30 seconds.
+
+            Console.WriteLine($"Full-text search example");
+
+            //Create a new Arkiv with an Arkivskaper
+            //Create a new Arkivdel in the Arkiv
+            var newArkivskaper = new Arkivskaper("B7-23-W5", "John Smith");
+            var newArkiv = new Arkiv("test");
+            var newArkivdel = new Arkivdel("2007/8");
+
+            var transactionResponse = client.Transaction()
+                .Save(newArkiv)
+                .Save(newArkivskaper)
+                .Save(newArkivdel)
+                .Link(newArkiv.LinkArkivskaper(newArkivskaper))
+                .Link(newArkivdel.LinkArkiv(newArkiv))
+                .Commit();
+
+            //The time needed to update the search index depends on the specific installation. The RMS update interval defaults
+            //to 30 seconds.
+
+            //Search for 'test' in multiple object types
+            Search search = client.Search(Doctype.Tekst, "test");
+            search.Limit = 10;
+            SearchResponse response = search.Execute();
+            foreach (SearchResult result in response.Results)
+            {
+                Console.WriteLine($"Search result:");
+                Console.WriteLine($"    Ids:");
+                foreach (string idField in result.Ids.Keys)
+                {
+                    Console.WriteLine($"    {idField}: {String.Join(",", result.Ids[idField])}");
+                }
+                Console.WriteLine($"    Highlights:");
+                foreach (string matchingField in result.Highlights.Keys)
+                {
+                    Console.WriteLine($"    {matchingField}: {String.Join(",", result.Highlights[matchingField])}");
+                }
+                Console.WriteLine(Environment.NewLine);
+            }
+
+            Console.WriteLine(Environment.NewLine);
+
+            foreach (Facet facet in response.Facets)
+            {
+                Console.WriteLine($"Facet:");
+                Console.WriteLine($"Field: {facet.Field}");
+                Console.WriteLine($"Values: {String.Join(", ", facet.Values)}");
+                Console.WriteLine(Environment.NewLine);
+            }
+
+            //Search for 'test' in Akrivdel
+            search = client.Search(Doctype.Arkivdel, "test");
+            response = search.Execute();
+            foreach (SearchResult result in response.Results)
+            {
+                Console.WriteLine($"Search result:");
+                Console.WriteLine($"    Ids:");
+                foreach (string idField in result.Ids.Keys)
+                {
+                    Console.WriteLine($"    {idField}: {String.Join(",", result.Ids[idField])}");
+                }
+                Console.WriteLine($"    Highlights:");
+                foreach (string matchingField in result.Highlights.Keys)
+                {
+                    Console.WriteLine($"    {matchingField}: {String.Join(",", result.Highlights[matchingField])}");
+                }
+                Console.WriteLine(Environment.NewLine);
+            }
+
+            Console.WriteLine(Environment.NewLine);
+
+            foreach (Facet facet in response.Facets)
+            {
+                Console.WriteLine($"Facet:");
+                Console.WriteLine($"Field: {facet.Field}");
+                Console.WriteLine($"Values: {String.Join(", ", facet.Values)}");
+                Console.WriteLine(Environment.NewLine);
+            }
         }
     }
 
