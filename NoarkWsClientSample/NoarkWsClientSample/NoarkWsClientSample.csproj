@@ -9,14 +9,14 @@
     <PackageReference Include="Newtonsoft.Json" Version="11.0.2">
       <IncludeAssets>all</IncludeAssets>
     </PackageReference>
-    <PackageReference Include="CommandLineParser" Version="2.2.1">
+    <PackageReference Include="CommandLineParser" Version="2.6.0">
       <IncludeAssets>all</IncludeAssets>
     </PackageReference>
 
-    <PackageReference Include="Documaster.WebApi.Client.Noark5" Version="0.10.0">
+    <PackageReference Include="Documaster.WebApi.Client.Noark5" Version="0.12.1">
       <IncludeAssets>all</IncludeAssets>
     </PackageReference>
-    <PackageReference Include="Documaster.WebApi.Client.IDP" Version="1.0.0">
+    <PackageReference Include="Documaster.WebApi.Client.IDP" Version="1.1.0">
       <IncludeAssets>all</IncludeAssets>
     </PackageReference>
   </ItemGroup>

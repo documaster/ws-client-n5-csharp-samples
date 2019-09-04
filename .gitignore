@@ -28,6 +28,7 @@ bld/
 # Visual Studo cache/options directory
 .vs/
 */.vs/
+**/Properties/*
 
 # MSTest test Results
 [Tt]est[Rr]esult*/
